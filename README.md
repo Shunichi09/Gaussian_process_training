@@ -1,2 +1,2 @@
-# GP_process_training
+# GP_training
 Gaussian process training program
