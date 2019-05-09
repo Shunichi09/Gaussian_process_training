@@ -1,9 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from collections import OrderedDict
+import pickle
 
-TAU = 1.0 # theta_1
-SIGMA = 0.5 # theta_2
-ETA = 0.1 # theta_3
+# original
+from animation import AnimDrawer
 
 def load_data():
     """
@@ -52,7 +53,7 @@ def RBF_kernel(x_1, x_2, eta=0.1, tau=1., sigma=1.):
 
     return k
 
-def calc_cov_K(X):
+def calc_cov_K(X, TAU, SIGMA, ETA):
     """
     Parameters
     -----------
@@ -85,7 +86,7 @@ def calc_cov_K(X):
 
     assert (K_test.T == K_test).all(), "not symmetric!! K =`{}".format(K_test)
 
-    print("test = \n{}".format(K_test))
+    # print("test = \n{}".format(K_test))
 
     # method 2
     # 1st get 内積の計算
@@ -104,12 +105,12 @@ def calc_cov_K(X):
 
     assert (K.T == K).all(), "not symmetric!! K =`{}".format(K)
 
-    print("test_2 = \n{}".format(K))
+    # print("test_2 = \n{}".format(K))
     assert (np.around(K, 5) == np.round(K_test, 5)).all(), "wrong"
 
     return K
 
-def calc_cov_k_s(test_x, train_X):
+def calc_cov_k_s(test_x, train_X, TAU, SIGMA):
     """
     Parameters
     ----------
@@ -125,7 +126,7 @@ def calc_cov_k_s(test_x, train_X):
 
     return k_s[:, np.newaxis]
 
-def Gaussian_process(test_X, train_X, train_Y, kernel="RBF"):
+def Gaussian_process(test_X, train_X, train_Y, TAU, SIGMA, ETA, kernel="RBF"):
     """
     Parameters
     ----------
@@ -135,8 +136,8 @@ def Gaussian_process(test_X, train_X, train_Y, kernel="RBF"):
 
     Returns
     -----------
-    ave_x : 
-    var_x : 
+    ave_y : 
+    var_y : 
     """
     # set init condition
     if train_X.ndim < 2:
@@ -146,7 +147,7 @@ def Gaussian_process(test_X, train_X, train_Y, kernel="RBF"):
         test_X = test_X[:, np.newaxis] # to 2 dim
     
     # calc kernel mat
-    K = calc_cov_K(train_X)
+    K = calc_cov_K(train_X, TAU, SIGMA, ETA)
 
     # inv
     invK = np.linalg.inv(K)
@@ -157,16 +158,16 @@ def Gaussian_process(test_X, train_X, train_Y, kernel="RBF"):
     # predict for each input x
     for test_x in test_X:
         # self
-        k_ss = RBF_kernel(test_x, test_x, eta=0.1, tau=TAU, sigma=SIGMA)
+        k_ss = RBF_kernel(test_x, test_x, TAU, SIGMA, ETA)
         # other
-        k_s = calc_cov_k_s(test_x, train_X)
+        k_s = calc_cov_k_s(test_x, train_X, TAU, SIGMA)
 
-        ave_x = np.dot(np.dot(k_s.T, invK), train_Y[:, np.newaxis]) 
-        var_x = k_ss - np.dot(np.dot(k_s.T, invK), k_s)
+        ave_y = np.dot(np.dot(k_s.T, invK), train_Y[:, np.newaxis]) 
+        var_y = k_ss - np.dot(np.dot(k_s.T, invK), k_s)
 
         # save
-        ave.append(ave_x)
-        var.append(var_x)
+        ave.append(ave_y)
+        var.append(var_y)
 
     return np.array(ave).flatten(), np.array(var).flatten()
 
@@ -181,9 +182,38 @@ def main():
 
     test_X = np.linspace(x_min, x_max, step)
 
-    # predict
-    ave_x, var_x = Gaussian_process(test_X, train_X, train_Y)
+    # parameters range
+    mins = 0.1
+    maxs = 5.0
+    NUM = 500
 
+    TAUs = [1.0] # np.linspace(mins, maxs, NUM) # theta_1
+    SIGMAs = np.linspace(mins, maxs, NUM) # np.linspace(mins, maxs, NUM) # theta_2
+    ETAs = [0.1] # np.linspace(mins, maxs, NUM) # theta_3
+
+    results = OrderedDict()
+
+    for TAU in TAUs:
+        for SIGMA in SIGMAs:
+            for ETA in ETAs:
+                # predict
+                ave, var = Gaussian_process(test_X, train_X, train_Y, TAU, SIGMA, ETA)
+                # kernel
+                kernel_x = np.linspace(-3., 3., 100)
+                x_1 = [0.0]
+                kernel_y = np.array([RBF_kernel(x_1, x_2, tau=TAU, sigma=SIGMA, eta=0.0) for x_2 in kernel_x])   
+                # save
+                results["tau = {}, sigma = {}, eta = {}".format(round(TAU, 2), round(SIGMA, 2), round(ETA, 2))] = [train_X, train_Y, test_X, ave, var,  kernel_x, kernel_y]
+
+    # save
+    with open("result.pkl", "wb") as f:
+        pickle.dump(results, f)
+
+    # anim
+    animdrawer = AnimDrawer(results)
+    animdrawer.draw_anim()
+
+    """
     fig = plt.figure()
     axis = fig.add_subplot(111)
     axis.plot(train_X, train_Y, ".", c="b")
@@ -203,6 +233,7 @@ def main():
     axis_2.plot(test_X, y)
 
     plt.show()
+    """
 
 if __name__ == "__main__":
     main()
