@@ -1,62 +1,18 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-TAU = 1.0 # theta_1
-SIGMA = 0.5 # theta_2
-ETA = 0.1 # theta_3
+from datafunctions import load_data
+from kernels import RBF_kernel
 
-def load_data():
-    """
-    Parameters
-    ---------------
-
-    Returns
-    --------
-
-    """
-    data = []
-
-    with open("./data/ref_data.txt", mode="r") as txt_data:
-        raw_data = txt_data.readlines()
-
-        for raw_data_row in raw_data:
-            raw_data_row = raw_data_row.replace("\n", "")
-            raw_data_row = raw_data_row.split(" ")
-
-            data_row = list(map(float, raw_data_row)) # to float
-            data.append(data_row)
-
-    data = np.array(data)
-
-    """
-    data_fig = plt.figure()
-    axis = data_fig.add_subplot(111)
-    axis.plot(data[:, 0], data[:, 1], ".", c="b")
-    plt.show()
-    """
-
-    return data[:, 0], data[:, 1] 
-
-def RBF_kernel(x_1, x_2, eta=0.1, tau=1., sigma=1.):
-    """
-    Parameters
-    -----------
-    x_1 : numpy.ndarray
-    x_2 : numpy.ndarray
-    """
-    x_1 = np.array(x_1)
-    x_2 = np.array(x_2)
-
-    k = tau * np.exp(-np.sum((x_1 - x_2)**2) / (2. * sigma * sigma)) + eta # ここの書き方はいろいろありそう
-    # k = tau * np.exp(-(x_1 - x_2)**2 / (2. * sigma * sigma)) + eta # ここの書き方はいろいろありそう
-
-    return k
-
-def calc_cov_K(X):
+def calc_cov_K(X, param, kernel_func):
     """
     Parameters
     -----------
     X : numpy.ndarray, shape(N, D)
+        input
+    param : dict
+        valid parameters for kernel
+    kernel_func : callable function
 
     Returns
     --------
@@ -73,21 +29,18 @@ def calc_cov_K(X):
     # method 1
     K_test = np.zeros((N, N))
 
-    for n1, x1 in enumerate(X):
-        for n2, x2 in enumerate(X):
-            ETA = 0.0
-            if n1 == n2:
-                ETA = 0.1
-
-            k = RBF_kernel(x1, x2, eta=ETA, tau=TAU, sigma=SIGMA)
-            K_test[n1, n2] = k
-            K_test[n2, n1] = k
+    for n_1, x_1 in enumerate(X):
+        for n_2, x_2 in enumerate(X):    
+            k = kernel_func(x_1, x_2, n_1, n_2, param)
+            K_test[n_1, n_2] = k
+            K_test[n_2, n_1] = k
 
     assert (K_test.T == K_test).all(), "not symmetric!! K =`{}".format(K_test)
 
-    print("test = \n{}".format(K_test))
+    # print("test = \n{}".format(K_test))
 
     # method 2
+    """
     # 1st get 内積の計算
     norm_X = np.sum(X**2, axis=1)
 
@@ -100,43 +53,53 @@ def calc_cov_K(X):
 
     temp_K = np.tile(norm_X[:, np.newaxis], (1, N)) + np.tile(norm_X[:, np.newaxis].T, (N, 1)) - 2. * multi_X
 
-    K = TAU * np.exp(- temp_K / (2. * SIGMA * SIGMA)) + ETA * np.eye(N)
+    param["eta"] = 0.1
+    K = param["tau"] * np.exp(- temp_K / (2. * param["sigma"] * param["sigma"])) + param["eta"] * np.eye(N)
 
     assert (K.T == K).all(), "not symmetric!! K =`{}".format(K)
-
-    print("test_2 = \n{}".format(K))
+    # print("test_2 = \n{}".format(K))
     assert (np.around(K, 5) == np.round(K_test, 5)).all(), "wrong"
+    """
 
-    return K
+    return K_test
 
-def calc_cov_k_s(test_x, train_X):
+def calc_cov_k_s(test_x, train_X, param, kernel_func):
     """
     Parameters
     ----------
     test_x : numpy.ndarray, shape(D)
     train_X : numpy.ndarray, shape(N, D)
+    param : dict
+        valid parameters for kernel
+    kernel_func : callable function
     """
     # initial condition
     assert test_x.shape[0] == train_X.shape[1], "size is wrong train_X = {}".format(train_X)
 
-    k_s = np.array([RBF_kernel(test_x, x, eta=0.0, sigma=SIGMA, tau=TAU) for x in train_X])
+    # index is all different
+    n_test = 0
+    n_train = 1
+
+    k_s = np.array([kernel_func(test_x, x, n_test, n_train, param) for x in train_X])
 
     assert train_X.shape[0] == k_s.shape[0], "size is wrong"
 
     return k_s[:, np.newaxis]
 
-def Gaussian_process(test_X, train_X, train_Y, kernel="RBF"):
+def Gaussian_process(test_X, train_X, train_Y, param, kernel_func):
     """
     Parameters
     ----------
     test_X : numpy.ndarray, shape(test_N, D)
     train_X : numpy.ndarray, shape(N, D)
     train_Y : numpy.ndarray, shape(N)
+    param : dict
+        parameters of kernel
 
     Returns
     -----------
-    ave_x : 
-    var_x : 
+    ave_ys : numpy.ndarray, shape(test_N)
+    var_ys : numpy.ndarray, shape(test_N)
     """
     # set init condition
     if train_X.ndim < 2:
@@ -146,34 +109,35 @@ def Gaussian_process(test_X, train_X, train_Y, kernel="RBF"):
         test_X = test_X[:, np.newaxis] # to 2 dim
     
     # calc kernel mat
-    K = calc_cov_K(train_X)
+    K = calc_cov_K(train_X, param, kernel_func)
 
     # inv
     invK = np.linalg.inv(K)
 
-    ave = []
-    var = []
+    ave_ys = []
+    var_ys = []
 
     # predict for each input x
     for test_x in test_X:
         # self
-        k_ss = RBF_kernel(test_x, test_x, eta=0.1, tau=TAU, sigma=SIGMA)
+        n_test = 0 # same index
+        k_ss = kernel_func(test_x, test_x, n_test, n_test, param)
         # other
-        k_s = calc_cov_k_s(test_x, train_X)
+        k_s = calc_cov_k_s(test_x, train_X, param, kernel_func)
 
-        ave_x = np.dot(np.dot(k_s.T, invK), train_Y[:, np.newaxis]) 
-        var_x = k_ss - np.dot(np.dot(k_s.T, invK), k_s)
+        ave = np.dot(np.dot(k_s.T, invK), train_Y[:, np.newaxis]) 
+        var = k_ss - np.dot(np.dot(k_s.T, invK), k_s)
 
         # save
-        ave.append(ave_x)
-        var.append(var_x)
+        ave_ys.append(ave)
+        var_ys.append(var)
 
-    return np.array(ave).flatten(), np.array(var).flatten()
+    return np.array(ave_ys).flatten(), np.array(var_ys).flatten()
 
 def main():
 
     # load dataset
-    train_X, train_Y = load_data()
+    train_X, train_Y = load_data("./data/ref_data.txt")
     
     x_min = -1.
     x_max = 3.5
@@ -181,15 +145,25 @@ def main():
 
     test_X = np.linspace(x_min, x_max, step)
 
+    # paramters
+    TAU = 1.0 # theta_1 
+    SIGMA = 5.0 # theta_2
+    ETA = 0.1 # theta_3
+
+    param = {}
+    param["tau"] = TAU
+    param["sigma"] = SIGMA 
+    param["eta"] = ETA
+
     # predict
-    ave_x, var_x = Gaussian_process(test_X, train_X, train_Y)
+    ave_ys, var_ys = Gaussian_process(test_X, train_X, train_Y, param, RBF_kernel)
 
     fig = plt.figure()
     axis = fig.add_subplot(111)
     axis.plot(train_X, train_Y, ".", c="b")
     
-    axis.plot(test_X, ave_x, c="g")
-    axis.fill_between(test_X, ave_x - 2. * np.sqrt(var_x), ave_x + 2. * np.sqrt(var_x), alpha=0.3, color="b")
+    axis.plot(test_X, ave_ys, c="g")
+    axis.fill_between(test_X, ave_ys - 2. * np.sqrt(var_ys), ave_ys + 2. * np.sqrt(var_ys), alpha=0.3, color="b")
 
     # kernel
     fig_2 = plt.figure()
@@ -198,7 +172,11 @@ def main():
     test_X = np.linspace(-3., 3., 100)
     x_1 = [0.0]
 
-    y = np.array([RBF_kernel(x_1, x_2, tau=TAU, sigma=SIGMA, eta=0.0) for x_2 in test_X])
+    # index is all different
+    n_test = 0
+    n_train = 1
+
+    y = np.array([RBF_kernel(x_1, x_2, n_test, n_train, param) for x_2 in test_X])
     
     axis_2.plot(test_X, y)
 

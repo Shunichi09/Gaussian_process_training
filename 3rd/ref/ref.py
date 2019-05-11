@@ -19,7 +19,7 @@ ymax = 3
 # GP kernel parameters
 eta   = 0.1
 tau   = 1
-sigma = 0.5
+sigma = 5.0
 
 def kgauss (params):
     [tau,sigma] = params
@@ -54,7 +54,7 @@ def gpr (xx, xtrain, ytrain, kernel):
         k = kv (x, xtrain, kernel)
         print("k = {} ".format(k))
         print(x)
-        input()
+        # input()
         ypr.append (k.T.dot(Kinv).dot(ytrain))
         spr.append (s - k.T.dot(Kinv).dot(k))
     return ypr, spr

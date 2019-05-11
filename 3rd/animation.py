@@ -100,7 +100,8 @@ class AnimDrawer():
         self.data_img.set_data([self.train_X[i], self.train_Y[i]])
         self.ave_img.set_data([self.test_X[i], self.ave_ys[i]])
         self.kernel_img.set_data([self.kernel_x[i], self.kernel_y[i]])
-        self.txt_img.set_text(self.keys[i] + "\n y = TAU * exp (x / (2 * SIGMA * SIGMA)) + ETA")
+        # self.txt_img.set_text(self.keys[i] + "\n y = TAU * exp (x / (2 * SIGMA * SIGMA)) + ETA")
+        self.txt_img.set_text(self.keys[i] + "\n y = exp(tau) * exp (x / (exp(sigma))) + exp(eta)")
         
         self.axis_1.collections.clear()
         self.axis_1.fill_between(self.test_X[i], self.ave_ys[i] - 2. * np.sqrt(self.var_ys[i]), self.ave_ys[i] + 2. * np.sqrt(self.var_ys[i]), color="b", alpha=0.15)

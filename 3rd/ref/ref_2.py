@@ -1,10 +1,15 @@
+#!/usr/local/bin/python
+#
+#    gpr.py -- Gaussian process regression.
+#    $Id: gpr.py,v 1.14 2018/03/09 00:55:08 daichi Exp $
+#
+#
 import sys
-import putil
 import numpy as np
-from pylab import *
+# from pylab import *
+import matplotlib.pyplot as plt
 from numpy.linalg import det,inv
 from scipy.optimize import minimize, fmin_l_bfgs_b
-from scg import SCG
 
 # plot parameters
 N    = 100
@@ -16,18 +21,19 @@ blue = '#ccccff'
 
 def kgauss (params):
     [tau,sigma,eta] = params
+    # print(params)
     return lambda x,y,train=True: \
-        exp(tau) * exp (-(x - y)**2 / exp(sigma)) + \
-        (exp(eta) if (train and x == y) else 0)
+        np.exp(tau) * np.exp (-(x - y)**2 / np.exp(sigma)) + \
+        (np.exp(eta) if (train and x == y) else 0)
 
 def kgauss_grad (xi,xj,d,kernel,params):
     if d == 0:
-        return exp(params[d]) * kernel(params)(xi, xj)
+        return np.exp(params[d]) * kernel(params)(xi, xj)
     if d == 1:
         return kernel(params)(xi, xj) * \
-               (xi - xj) * (xi - xj) / exp(params[d])
+               (xi - xj) * (xi - xj) / np.exp(params[d])
     if d == 2:
-        return (exp(params[d]) if xi == xj else 0)
+        return (np.exp(params[d]) if xi == xj else 0)
     else:
         return 0
     
@@ -60,29 +66,37 @@ def printparam (params):
 def loglik (params,xtrain,ytrain,kernel,kgrad):
     K = kernel_matrix (xtrain, kernel(params))
     Kinv = inv(K)
-    return log(det(K)) + ytrain.T.dot(Kinv).dot(ytrain)
+    return np.log(det(K)) + ytrain.T.dot(Kinv).dot(ytrain)
     # return (N * log(2*np.pi) + \
     #         log(det(K)) + ytrain.T.dot(Kinv).dot(ytrain)) / 2
 
 def gradient (params,xtrain,ytrain,kernel,kgrad):
     K = kernel_matrix (xtrain, kernel(params))
+    # print("grad K = {}".format(K))
     Kinv = inv(K)
     Kinvy = Kinv.dot(ytrain)
     D = len(params)
     N = len(xtrain)
     grad = np.zeros(D)
-    for d in xrange(D):
+    for d in range(D):
         G = np.array (
                 [kgrad (xi, xj, d, kernel, params)
                 for xi in xtrain for xj in xtrain]
             ).reshape(N,N)
+        
+        print("G = {}".format(G))
         grad[d] = tr(Kinv,G) - Kinvy.dot(G).dot(Kinvy)
+        print("grad[d] = {}".format(grad[d]))
+        # input()
+
+    print("grad = {}".format(grad))
+    # input()
     return grad
 
 def numgrad (params,xtrain,ytrain,kernel,kgrad,eps=1e-6):
     D = len(params)
     ngrad = np.zeros (D)
-    for d in xrange(D):
+    for d in range(D):
         lik = loglik (params,xtrain,ytrain,kernel,kgrad)
         params[d] += eps
         newlik = loglik (params,xtrain,ytrain,kernel,kgrad)
@@ -95,32 +109,33 @@ def optimize (xtrain, ytrain, kernel, kgrad, init):
                     jac = gradient, # numgrad
                     method = 'BFGS', callback = printparam,
                     options = {'gtol' : 1e-4, 'disp' : True})
-    print res.message
+    # print res.message
     return res.x
 
 def optimize1 (xtrain, ytrain, kernel, kgrad, init):
     x,flog,feval,status = SCG (loglik, gradient, init,
                                optargs=[xtrain,ytrain,kernel,kgrad])
-    print status
+    # print status
     return x
 
 def optimize2 (xtrain, ytrain, kernel, kgrad, init):
     x,f,d = fmin_l_bfgs_b (loglik, init, fprime=gradient,
                            args=[xtrain,ytrain,kernel,kgrad],
                            iprint=0, maxiter=1000)
-    print d
+    # print d
     return x
 
 def gpplot (xtrain, ytrain, kernel, params):
     xx = np.linspace (xmin, xmax, N)
     ypr,spr = gpr (xx, xtrain, ytrain, kernel(params))
-    plot (xtrain, ytrain, 'bx', markersize=16)
-    plot (xx, ypr, 'b-')
-    fill_between (xx, ypr - 2*sqrt(spr), ypr + 2*sqrt(spr), color=blue)
+    plt.plot (xtrain, ytrain, 'bx', markersize=16)
+    plt.plot (xx, ypr, 'b-')
+    plt.fill_between (xx, ypr - 2*np.sqrt(spr), ypr + 2*np.sqrt(spr), color=blue)
+    plt.show()
 
 def usage ():
-    print 'usage: gpr.py train [output]'
-    print '$Id: gpr.py,v 1.14 2018/03/09 00:55:08 daichi Exp $'
+    # print 'usage: gpr.py train [output]'
+    # print '$Id: gpr.py,v 1.14 2018/03/09 00:55:08 daichi Exp $'
     sys.exit (0)
 
 def main ():
@@ -129,9 +144,9 @@ def main ():
     else:
         train = np.loadtxt (sys.argv[1], dtype=float)
         # kernel parameters
-        tau   = log(1)
-        sigma = log(1)
-        eta   = log(1)
+        tau   = np.log(1)
+        sigma = np.log(1)
+        eta   = np.log(1)
         
     xtrain = train.T[0]
     ytrain = train.T[1]
@@ -142,15 +157,10 @@ def main ():
     # print 'grad  =', gradient (params, xtrain, ytrain, kernel, kgrad)
     # print 'ngrad =', numgrad (params, xtrain, ytrain, kernel, kgrad)
 
-    params = optimize (xtrain, ytrain, kernel, kgrad, params)
-    print 'params =',; print params
+    params = optimize2 (xtrain, ytrain, kernel, kgrad, params)
+    print(params)
+    # print 'params =',; print params
     gpplot (xtrain, ytrain, kernel, params)
-    putil.simpleaxis ()
-    
-    if len(sys.argv) > 2:
-        savefig (sys.argv[2])
-    show ()
-
 
 if __name__ == "__main__":
     main ()
